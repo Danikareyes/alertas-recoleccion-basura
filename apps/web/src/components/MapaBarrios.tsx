@@ -2,26 +2,35 @@ import { useEffect, useState } from 'react'
 import { MapContainer, TileLayer, GeoJSON, Tooltip } from 'react-leaflet'
 import { supabase } from '../lib/supabase'
 import type { BarrioMapa } from '../types'
+import { useCamionEnVivo } from '../hooks/useCamionEnVivo'
+import MarcadorCamion from './MarcadorCamion'
 
-// Leaflet usa el orden [latitud, longitud] (al revés que GeoJSON)
 const CENTRO_LA_TRONCAL: [number, number] = [-2.4185, -79.346]
 
 export default function MapaBarrios() {
   const [barrios, setBarrios] = useState<BarrioMapa[]>([])
   const [error, setError] = useState<string | null>(null)
+  const posicion = useCamionEnVivo() // ← aquí se conecta la "antena"
 
-  // Se ejecuta una vez, cuando el mapa aparece en pantalla
+  // Reloj interno: cambia cada segundo para recalcular "hace X s"
+  const [ahora, setAhora] = useState(Date.now())
+  useEffect(() => {
+    const reloj = setInterval(() => setAhora(Date.now()), 1000)
+    return () => clearInterval(reloj)
+  }, [])
+
   useEffect(() => {
     async function cargarBarrios() {
       const { data, error } = await supabase.from('barrios_mapa').select('*')
-      if (error) {
-        setError(error.message)
-      } else {
-        setBarrios(data as BarrioMapa[])
-      }
+      if (error) setError(error.message)
+      else setBarrios(data as BarrioMapa[])
     }
     cargarBarrios()
   }, [])
+
+  const segundosDesdeSenal = posicion
+    ? Math.max(0, Math.round((ahora - Date.parse(posicion.registrado_en)) / 1000))
+    : null
 
   return (
     <div className="relative h-[75vh] w-full overflow-hidden rounded-2xl shadow">
@@ -48,7 +57,23 @@ export default function MapaBarrios() {
             </Tooltip>
           </GeoJSON>
         ))}
+
+        {posicion && <MarcadorCamion posicion={posicion} />}
       </MapContainer>
+
+      <div className="absolute bottom-4 left-4 right-4 z-[1000] rounded-2xl bg-white p-4 shadow-lg">
+        {posicion ? (
+          <>
+            <p className="text-lg font-extrabold">Camión en ruta</p>
+            <p className="text-sm text-[#4E5F55]">Última señal hace {segundosDesdeSenal} s</p>
+          </>
+        ) : (
+          <>
+            <p className="text-lg font-extrabold">Sin recorrido en este momento</p>
+            <p className="text-sm text-[#4E5F55]">Te avisaremos cuando el camión inicie su ruta.</p>
+          </>
+        )}
+      </div>
     </div>
   )
 }
